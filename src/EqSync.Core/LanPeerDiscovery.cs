@@ -45,8 +45,9 @@ public sealed class LanPeerDiscovery : IPeerDiscovery
                 break;
             }
 
+            PeerInfo localPeer = _localPeerFactory();
             PeerInfo? peer = TryParsePeer(result.Buffer);
-            if (peer is null || peer.MachineId == _localPeerFactory().MachineId)
+            if (peer is null || !IsCompatible(localPeer, peer))
             {
                 continue;
             }
@@ -63,6 +64,12 @@ public sealed class LanPeerDiscovery : IPeerDiscovery
     public ValueTask DisposeAsync()
     {
         return ValueTask.CompletedTask;
+    }
+
+    public static bool IsCompatible(PeerInfo localPeer, PeerInfo remotePeer)
+    {
+        return !string.Equals(localPeer.MachineId, remotePeer.MachineId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(localPeer.AppVersion, remotePeer.AppVersion, StringComparison.Ordinal);
     }
 
     private async Task BroadcastLoopAsync(UdpClient broadcaster, CancellationToken cancellationToken)

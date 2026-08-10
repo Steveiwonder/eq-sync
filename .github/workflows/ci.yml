@@ -24,6 +24,16 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Set app version
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            $version = "0.0.0-ci.${{ github.run_number }}"
+          }
+          "APP_VERSION=$version" >> $env:GITHUB_ENV
+
       - name: Restore
         run: dotnet restore
 
@@ -43,6 +53,8 @@ jobs:
           /p:PublishSingleFile=true
           /p:IncludeNativeLibrariesForSelfExtract=true
           /p:EnableCompressionInSingleFile=true
+          /p:Version=${{ env.APP_VERSION }}
+          /p:InformationalVersion=${{ env.APP_VERSION }}
 
       - name: Package Windows app
         shell: pwsh

@@ -86,7 +86,7 @@ public partial class App : System.Windows.Application
         PeerInfo LocalPeer() => new(
             settings.MachineId,
             Environment.MachineName,
-            typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0",
+            AppVersionProvider.Current,
             _peerHttpService?.Endpoint ?? new Uri("http://localhost:47642/"),
             IsPaired: true,
             installDiscovery.Discover().Select(install => install.ProfileType).Distinct().ToArray());
