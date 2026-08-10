@@ -92,13 +92,12 @@ public partial class MainWindow : Window
             _currentInstall = install;
             _currentPeer = peer;
             PreviewGrid.ItemsSource = plan.Items
-                .Where(item => item.Action is not SyncActionKind.NoOp)
-                .Select(item => new PreviewRow(item.Action.ToString(), item.RelativePath, item.Reason))
+                .Select(item => new PreviewRow(DisplayAction(item.Action), item.RelativePath, item.Reason))
                 .ToArray();
             ApplyButton.IsEnabled = plan.ChangeCount > 0 && plan.ConflictCount == 0;
             StatusText.Text = plan.ConflictCount > 0
-                ? $"Preview found {plan.ConflictCount} conflict(s). Apply is disabled."
-                : $"Preview found {plan.ChangeCount} change(s).";
+                ? $"Preview compared {plan.Items.Count} file(s), found {plan.ConflictCount} conflict(s). Apply is disabled."
+                : $"Preview compared {plan.Items.Count} file(s), found {plan.ChangeCount} change(s).";
         }
         catch (Exception ex)
         {
@@ -200,6 +199,11 @@ public partial class MainWindow : Window
     {
         e.Cancel = true;
         Hide();
+    }
+
+    private static string DisplayAction(SyncActionKind action)
+    {
+        return action == SyncActionKind.NoOp ? "Same" : action.ToString();
     }
 
     private sealed record PreviewRow(string Action, string RelativePath, string Reason);
