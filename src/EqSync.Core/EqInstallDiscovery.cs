@@ -1,7 +1,9 @@
 using Microsoft.Win32;
+using System.Runtime.Versioning;
 
 namespace EqSync.Core;
 
+[SupportedOSPlatform("windows")]
 public sealed class EqInstallDiscovery : IEqInstallDiscovery
 {
     private static readonly string[] UninstallRegistryRoots =
