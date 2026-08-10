@@ -81,6 +81,7 @@ public partial class App : System.Windows.Application
         if (firewallRules.AreRulesPresent())
         {
             _logger.Info("Firewall rules already present.");
+            SaveFirewallPromptDismissed();
             return;
         }
 
@@ -94,10 +95,21 @@ public partial class App : System.Windows.Application
         {
             _logger.Info("User accepted firewall rule prompt. Launching elevated rule installer.");
             firewallRules.LaunchElevatedRuleInstaller();
+            SaveFirewallPromptDismissed();
             return;
         }
 
         _logger.Info("User declined firewall rule prompt. Prompt dismissed.");
+        SaveFirewallPromptDismissed();
+    }
+
+    private void SaveFirewallPromptDismissed()
+    {
+        if (_settings is null || _settingsStore is null)
+        {
+            return;
+        }
+
         _settings = _settings with { FirewallPromptDismissed = true };
         _settingsStore.Save(_settings);
     }
