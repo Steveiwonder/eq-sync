@@ -86,11 +86,15 @@ public sealed class PeerSyncService
         }
 
         ThrowIfLocalBlocked();
-        await ThrowIfRemoteBlockedAsync(peer, cancellationToken);
 
         SyncPlanItem[] incoming = plan.Items.Where(item => item.Action == SyncActionKind.CopyRemoteToLocal).ToArray();
         SyncPlanItem[] outgoing = plan.Items.Where(item => item.Action == SyncActionKind.CopyLocalToRemote).ToArray();
         _logger.Info($"Apply classified actions. Incoming={incoming.Length}; Outgoing={outgoing.Length}");
+        if (outgoing.Length > 0)
+        {
+            await ThrowIfRemoteBlockedAsync(peer, cancellationToken);
+        }
+
         int totalItems = incoming.Length + outgoing.Length;
         int completedItems = 0;
 
@@ -144,7 +148,7 @@ public sealed class PeerSyncService
         if (blockers.Count > 0)
         {
             _logger.Info($"Remote sync blockers detected. Peer={peer.MachineName}; Processes={string.Join(", ", blockers)}");
-            throw new InvalidOperationException($"Sync blocked on {peer.MachineName} while running: {string.Join(", ", blockers)}");
+            throw new InvalidOperationException($"Sync would write to {peer.MachineName}, but EQ is running there: {string.Join(", ", blockers)}");
         }
     }
 }

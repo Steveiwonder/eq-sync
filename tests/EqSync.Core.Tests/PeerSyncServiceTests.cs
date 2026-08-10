@@ -40,7 +40,46 @@ public sealed class PeerSyncServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_BlocksWhenRemoteGameIsRunning()
+    public async Task ApplyAsync_DoesNotBlockWhenOnlyPullingFromRemoteGameThatIsRunning()
+    {
+        string local = CreateInstallRoot();
+        File.WriteAllText(Path.Combine(local, "eqclient.ini"), "old");
+        string backup = Directory.CreateTempSubdirectory("eqsync-peer-backup-").FullName;
+
+        SyncPlan plan = new(EqProfileType.EverQuest,
+        [
+            new SyncPlanItem(
+                "eqclient.ini",
+                SyncActionKind.CopyRemoteToLocal,
+                new SyncFileEntry("eqclient.ini", 3, DateTimeOffset.UtcNow.AddMinutes(-1), "old"),
+                new SyncFileEntry("eqclient.ini", 6, DateTimeOffset.UtcNow, "remote"),
+                "Remote newer")
+        ]);
+
+        FakePeerTransport transport = new()
+        {
+            RemoteBlockers = ["eqgame"]
+        };
+
+        PeerSyncService service = new(
+            new ManifestBuilder(new SyncContentRules()),
+            new SyncPlanner(),
+            transport,
+            new BackupService(),
+            new FakeProcessGuard(),
+            "local",
+            "pc",
+            backup);
+
+        PeerSyncApplyResult result = await service.ApplyAsync(Install(local), Peer(), plan, CancellationToken.None);
+
+        Assert.Equal(0, transport.BlockerRequestCount);
+        Assert.Equal(1, result.DownloadedFiles);
+        Assert.Equal("remote", File.ReadAllText(Path.Combine(local, "eqclient.ini")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_BlocksWhenWritingToRemoteGameThatIsRunning()
     {
         string local = CreateInstallRoot();
         File.WriteAllText(Path.Combine(local, "eqclient.ini"), "local");
@@ -72,6 +111,7 @@ public sealed class PeerSyncServiceTests
         InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.ApplyAsync(Install(local), Peer(), plan, CancellationToken.None));
 
+        Assert.Contains("write to", ex.Message, StringComparison.Ordinal);
         Assert.Contains("Remote PC", ex.Message, StringComparison.Ordinal);
         Assert.Equal(1, transport.BlockerRequestCount);
     }
