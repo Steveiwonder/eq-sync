@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Diagnostics;
+using System.IO;
 using EqSync.Core;
 
 namespace EqSync.App;
@@ -10,6 +12,7 @@ public partial class MainWindow : Window
     private readonly IRunningProcessGuard _processGuard;
     private readonly PeerSyncService _peerSyncService;
     private readonly SelfUpdateService _selfUpdateService = new();
+    private readonly IEqSyncLogger _logger;
     private IReadOnlyList<EqInstall> _installs;
     private SyncPlan? _currentPlan;
     private EqInstall? _currentInstall;
@@ -20,19 +23,23 @@ public partial class MainWindow : Window
         IReadOnlyList<EqInstall> installs,
         IManifestBuilder manifestBuilder,
         IRunningProcessGuard processGuard,
-        PeerSyncService peerSyncService)
+        PeerSyncService peerSyncService,
+        IEqSyncLogger logger)
     {
         _settings = settings;
         _installs = installs;
         _manifestBuilder = manifestBuilder;
         _processGuard = processGuard;
         _peerSyncService = peerSyncService;
+        _logger = logger;
         InitializeComponent();
         LoadInstalls();
+        StatusText.Text = $"{StatusText.Text}. Log: {_logger.LogPath}";
     }
 
     public void AddPeer(PeerInfo peer)
     {
+        _logger.Info($"Peer discovered by UI. Machine={peer.MachineName}; Id={peer.MachineId}; Version={peer.AppVersion}; Endpoint={peer.Endpoint}; Profiles={string.Join(", ", peer.Profiles)}");
         foreach (PeerInfo existing in PeersList.Items.OfType<PeerInfo>())
         {
             if (existing.MachineId == peer.MachineId)
@@ -50,6 +57,7 @@ public partial class MainWindow : Window
         InstallsList.Items.Clear();
         foreach (EqInstall install in _installs)
         {
+            _logger.Info($"UI loaded install. Profile={install.ProfileType}; Name={install.DisplayName}; Path={install.Path}; Source={install.DetectionSource}");
             InstallsList.Items.Add(install);
         }
 
@@ -60,8 +68,10 @@ public partial class MainWindow : Window
 
     private void OnRefreshClicked(object sender, RoutedEventArgs e)
     {
+        _logger.Info("Refresh clicked.");
         EqInstallDiscovery discovery = new(_settings.ManualInstallPaths);
         _installs = discovery.Discover();
+        _logger.Info($"Refresh discovery complete. Count={_installs.Count}");
         LoadInstalls();
         PreviewGrid.ItemsSource = null;
         ApplyButton.IsEnabled = false;
@@ -72,22 +82,26 @@ public partial class MainWindow : Window
     {
         if (InstallsList.SelectedItem is not EqInstall install)
         {
+            _logger.Info("Preview clicked without selected install.");
             StatusText.Text = "Select an install first.";
             return;
         }
 
         if (PeersList.SelectedItem is not PeerInfo peer)
         {
+            _logger.Info($"Preview clicked without selected peer. Install={install.DisplayName}; Profile={install.ProfileType}");
             StatusText.Text = "Select a LAN peer first.";
             return;
         }
 
         try
         {
+            _logger.Info($"Preview clicked. Install={install.DisplayName}; Profile={install.ProfileType}; Path={install.Path}; Peer={peer.MachineName}; Endpoint={peer.Endpoint}; Version={peer.AppVersion}");
             PreviewGrid.ItemsSource = null;
             ApplyButton.IsEnabled = false;
             SetBusy(true, $"Previewing {install.DisplayName} with {peer.MachineName}. Hashing files and comparing manifests...");
             SyncPlan plan = await Task.Run(() => _peerSyncService.PreviewAsync(install, peer, CancellationToken.None));
+            _logger.Info($"Preview returned. Items={plan.Items.Count}; Changes={plan.ChangeCount}; Conflicts={plan.ConflictCount}");
             _currentPlan = plan;
             _currentInstall = install;
             _currentPeer = peer;
@@ -101,6 +115,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _logger.Error(ex, "Preview failed.");
             StatusText.Text = ex.Message;
             ApplyButton.IsEnabled = false;
         }
@@ -114,6 +129,7 @@ public partial class MainWindow : Window
     {
         if (_currentPlan is null || _currentInstall is null || _currentPeer is null)
         {
+            _logger.Info("Apply clicked without current plan.");
             StatusText.Text = "Preview a sync plan first.";
             return;
         }
@@ -130,6 +146,7 @@ public partial class MainWindow : Window
 
         try
         {
+            _logger.Info($"Apply clicked. Install={_currentInstall.DisplayName}; Profile={_currentInstall.ProfileType}; Peer={_currentPeer.MachineName}; Items={_currentPlan.Items.Count}; Changes={_currentPlan.ChangeCount}; Conflicts={_currentPlan.ConflictCount}");
             SetBusy(true, "Applying sync. Copying files and creating backups...");
             PeerSyncApplyResult result = await Task.Run(() => _peerSyncService.ApplyAsync(_currentInstall, _currentPeer, _currentPlan, CancellationToken.None));
             ApplyButton.IsEnabled = false;
@@ -137,6 +154,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _logger.Error(ex, "Apply failed.");
             StatusText.Text = ex.Message;
         }
         finally
@@ -149,6 +167,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            _logger.Info("Update check clicked.");
             SetBusy(true, "Checking GitHub Releases for updates...");
             UpdateCheckResult update = await _selfUpdateService.CheckForUpdateAsync(CancellationToken.None);
             if (!update.IsUpdateAvailable)
@@ -174,6 +193,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _logger.Error(ex, "Update check failed.");
             StatusText.Text = $"Update check failed: {ex.Message}";
         }
         finally
@@ -182,9 +202,38 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnOpenLogClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _logger.Info("Open log clicked.");
+            string? directory = System.IO.Path.GetDirectoryName(_logger.LogPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            if (!File.Exists(_logger.LogPath))
+            {
+                File.WriteAllText(_logger.LogPath, string.Empty);
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _logger.LogPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Could not open log: {ex.Message}";
+        }
+    }
+
     private void SetBusy(bool isBusy, string? status = null)
     {
         RefreshButton.IsEnabled = !isBusy;
+        OpenLogButton.IsEnabled = !isBusy;
         UpdateButton.IsEnabled = !isBusy;
         PreviewButton.IsEnabled = !isBusy;
         ApplyButton.IsEnabled = !isBusy && _currentPlan is not null && _currentPlan.ChangeCount > 0 && _currentPlan.ConflictCount == 0;

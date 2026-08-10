@@ -10,19 +10,26 @@ public interface IManifestBuilder
 public sealed class ManifestBuilder : IManifestBuilder
 {
     private readonly ISyncContentRules _rules;
+    private readonly IEqSyncLogger _logger;
 
-    public ManifestBuilder(ISyncContentRules rules)
+    public ManifestBuilder(ISyncContentRules rules, IEqSyncLogger? logger = null)
     {
         _rules = rules;
+        _logger = logger ?? NullEqSyncLogger.Instance;
     }
 
     public SyncManifest Build(EqInstall install, string machineId, string machineName)
     {
         List<SyncFileEntry> files = [];
+        int scannedFiles = 0;
+        int skippedFiles = 0;
+        _logger.Info($"Building manifest. Profile={install.ProfileType}; Name={install.DisplayName}; Path={install.Path}; Machine={machineName}; InstallId={install.Id}");
         foreach (string file in Directory.EnumerateFiles(install.Path, "*", SearchOption.AllDirectories))
         {
+            scannedFiles++;
             if (!_rules.ShouldSyncFile(install.Path, file))
             {
+                skippedFiles++;
                 continue;
             }
 
@@ -34,6 +41,7 @@ public sealed class ManifestBuilder : IManifestBuilder
                 ComputeSha256(file)));
         }
 
+        _logger.Info($"Manifest built. Profile={install.ProfileType}; Tracked={files.Count}; Scanned={scannedFiles}; Skipped={skippedFiles}; Path={install.Path}");
         return new SyncManifest(
             machineId,
             machineName,

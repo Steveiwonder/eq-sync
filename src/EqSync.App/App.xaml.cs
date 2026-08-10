@@ -17,12 +17,15 @@ public partial class App : System.Windows.Application
         LocalAppSettings settings = settingsStore.Load();
         settingsStore.Save(settings);
 
+        FileEqSyncLogger logger = new();
+        logger.Info($"EQ Sync starting. Version={AppVersionProvider.Current}; Machine={Environment.MachineName}; SettingsPath={settingsStore.SettingsPath}; LogPath={logger.LogPath}");
         SyncContentRules rules = new();
         EqInstallDiscovery discovery = new(settings.ManualInstallPaths);
-        ManifestBuilder manifestBuilder = new(rules);
+        ManifestBuilder manifestBuilder = new(rules, logger);
         BackupService backupService = new();
         RunningProcessGuard processGuard = new();
         IReadOnlyList<EqInstall> installs = discovery.Discover();
+        logger.Info($"Install discovery complete. Count={installs.Count}; Installs={string.Join(" | ", installs.Select(install => $"{install.ProfileType}:{install.DisplayName}:{install.Path}"))}");
 
         _peerHttpService = new PeerHttpService(
             () => discovery.Discover(),
@@ -31,7 +34,8 @@ public partial class App : System.Windows.Application
             backupService,
             processGuard,
             settings.MachineId,
-            Environment.MachineName);
+            Environment.MachineName,
+            logger: logger);
 
         try
         {
@@ -45,13 +49,14 @@ public partial class App : System.Windows.Application
         PeerSyncService peerSyncService = new(
             manifestBuilder,
             new SyncPlanner(),
-            new PeerHttpTransport(),
+            new PeerHttpTransport(logger: logger),
             backupService,
             processGuard,
             settings.MachineId,
-            Environment.MachineName);
+            Environment.MachineName,
+            logger: logger);
 
-        _mainWindow = new MainWindow(settings, installs, manifestBuilder, processGuard, peerSyncService);
+        _mainWindow = new MainWindow(settings, installs, manifestBuilder, processGuard, peerSyncService, logger);
         ConfigureTrayIcon();
         _mainWindow.Show();
 

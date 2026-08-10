@@ -16,6 +16,7 @@ public sealed class PeerHttpService : IAsyncDisposable
     private readonly ISyncContentRules _syncContentRules;
     private readonly IBackupService _backupService;
     private readonly IRunningProcessGuard _processGuard;
+    private readonly IEqSyncLogger _logger;
     private readonly string _machineId;
     private readonly string _machineName;
     private readonly string _backupRoot;
@@ -33,7 +34,8 @@ public sealed class PeerHttpService : IAsyncDisposable
         string machineId,
         string machineName,
         string? backupRoot = null,
-        int port = 47642)
+        int port = 47642,
+        IEqSyncLogger? logger = null)
     {
         _installProvider = installProvider;
         _manifestBuilder = manifestBuilder;
@@ -42,6 +44,7 @@ public sealed class PeerHttpService : IAsyncDisposable
         _processGuard = processGuard;
         _machineId = machineId;
         _machineName = machineName;
+        _logger = logger ?? NullEqSyncLogger.Instance;
         _backupRoot = backupRoot ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "EqSync",
@@ -59,6 +62,7 @@ public sealed class PeerHttpService : IAsyncDisposable
 
         _cts = new CancellationTokenSource();
         _listener.Start();
+        _logger.Info($"Peer HTTP service started. Endpoint={Endpoint}");
         _listenTask = Task.Run(() => ListenAsync(_cts.Token));
     }
 
@@ -110,6 +114,7 @@ public sealed class PeerHttpService : IAsyncDisposable
         try
         {
             string path = context.Request.Url?.AbsolutePath.Trim('/') ?? string.Empty;
+            _logger.Info($"HTTP request received. Method={context.Request.HttpMethod}; Path={path}; Query={context.Request.Url?.Query}; Remote={context.Request.RemoteEndPoint}");
             if (string.Equals(path, "health", StringComparison.OrdinalIgnoreCase))
             {
                 await WriteJsonAsync(context.Response, new { ok = true });
@@ -143,7 +148,9 @@ public sealed class PeerHttpService : IAsyncDisposable
             context.Response.StatusCode = 404;
         }
         catch
+        (Exception ex)
         {
+            _logger.Error(ex, "HTTP request failed.");
             context.Response.StatusCode = 500;
         }
         finally
@@ -164,11 +171,13 @@ public sealed class PeerHttpService : IAsyncDisposable
         EqInstall? install = _installProvider().FirstOrDefault(candidate => candidate.ProfileType == profileType);
         if (install is null)
         {
+            _logger.Info($"Manifest request profile not found. Profile={profileType}");
             context.Response.StatusCode = 404;
             return;
         }
 
         SyncManifest manifest = _manifestBuilder.Build(install, _machineId, _machineName);
+        _logger.Info($"Manifest response ready. Profile={profileType}; Files={manifest.Files.Count}; InstallPath={install.Path}");
         await WriteJsonAsync(context.Response, manifest);
     }
 
@@ -178,6 +187,7 @@ public sealed class PeerHttpService : IAsyncDisposable
         string? relativePath = context.Request.QueryString["path"];
         if (install is null || string.IsNullOrWhiteSpace(relativePath))
         {
+            _logger.Info($"Download file request invalid. InstallFound={install is not null}; RelativePath={relativePath}");
             context.Response.StatusCode = 400;
             return;
         }
@@ -185,10 +195,12 @@ public sealed class PeerHttpService : IAsyncDisposable
         string filePath = BackupService.ResolveUnderRoot(install.Path, relativePath);
         if (!_syncContentRules.ShouldSyncFile(install.Path, filePath) || !File.Exists(filePath))
         {
+            _logger.Info($"Download file not found or disallowed. Path={relativePath}; FullPath={filePath}");
             context.Response.StatusCode = 404;
             return;
         }
 
+        _logger.Info($"Download file response. Path={relativePath}; Bytes={new FileInfo(filePath).Length}");
         context.Response.ContentType = "application/octet-stream";
         await using FileStream source = File.OpenRead(filePath);
         context.Response.ContentLength64 = source.Length;
@@ -199,6 +211,7 @@ public sealed class PeerHttpService : IAsyncDisposable
     {
         if (_processGuard.IsSyncBlocked())
         {
+            _logger.Info($"Upload rejected because remote is blocked. Processes={string.Join(", ", _processGuard.GetBlockingProcesses())}");
             context.Response.StatusCode = 409;
             await WriteJsonAsync(context.Response, _processGuard.GetBlockingProcesses());
             return;
@@ -208,6 +221,7 @@ public sealed class PeerHttpService : IAsyncDisposable
         string? relativePath = context.Request.QueryString["path"];
         if (install is null || string.IsNullOrWhiteSpace(relativePath))
         {
+            _logger.Info($"Upload file request invalid. InstallFound={install is not null}; RelativePath={relativePath}");
             context.Response.StatusCode = 400;
             return;
         }
@@ -215,10 +229,12 @@ public sealed class PeerHttpService : IAsyncDisposable
         string destination = BackupService.ResolveUnderRoot(install.Path, relativePath);
         if (!_syncContentRules.ShouldSyncFile(install.Path, destination))
         {
+            _logger.Info($"Upload file disallowed. Path={relativePath}; Destination={destination}");
             context.Response.StatusCode = 403;
             return;
         }
 
+        _logger.Info($"Upload file accepted. Path={relativePath}; Destination={destination}");
         _backupService.BackupFiles(install.Path, [relativePath], _backupRoot);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         string tempPath = destination + ".eqsync.tmp";
@@ -258,30 +274,39 @@ public sealed class PeerHttpTransport : IPeerTransport
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _httpClient;
+    private readonly IEqSyncLogger _logger;
 
-    public PeerHttpTransport(HttpClient? httpClient = null)
+    public PeerHttpTransport(HttpClient? httpClient = null, IEqSyncLogger? logger = null)
     {
         _httpClient = httpClient ?? new HttpClient();
+        _logger = logger ?? NullEqSyncLogger.Instance;
     }
 
     public async Task<SyncManifest> GetManifestAsync(PeerInfo peer, EqProfileType profileType, CancellationToken cancellationToken)
     {
         Uri uri = new(peer.Endpoint, $"manifest?profile={Uri.EscapeDataString(profileType.ToString())}");
+        _logger.Info($"Requesting remote manifest. Uri={uri}; Peer={peer.MachineName}");
         using Stream stream = await _httpClient.GetStreamAsync(uri, cancellationToken);
-        return await JsonSerializer.DeserializeAsync<SyncManifest>(stream, JsonOptions, cancellationToken)
+        SyncManifest manifest = await JsonSerializer.DeserializeAsync<SyncManifest>(stream, JsonOptions, cancellationToken)
             ?? throw new InvalidOperationException("Peer returned an empty manifest.");
+        _logger.Info($"Remote manifest received. Peer={peer.MachineName}; Profile={manifest.ProfileType}; Files={manifest.Files.Count}");
+        return manifest;
     }
 
     public async Task<IReadOnlyList<string>> GetBlockingProcessesAsync(PeerInfo peer, CancellationToken cancellationToken)
     {
         Uri uri = new(peer.Endpoint, "blockers");
+        _logger.Info($"Requesting remote blockers. Uri={uri}; Peer={peer.MachineName}");
         using Stream stream = await _httpClient.GetStreamAsync(uri, cancellationToken);
-        return await JsonSerializer.DeserializeAsync<IReadOnlyList<string>>(stream, JsonOptions, cancellationToken) ?? [];
+        IReadOnlyList<string> blockers = await JsonSerializer.DeserializeAsync<IReadOnlyList<string>>(stream, JsonOptions, cancellationToken) ?? [];
+        _logger.Info($"Remote blockers received. Peer={peer.MachineName}; Count={blockers.Count}; Processes={string.Join(", ", blockers)}");
+        return blockers;
     }
 
     public async Task DownloadFileAsync(PeerInfo peer, EqProfileType profileType, string relativePath, string destinationPath, CancellationToken cancellationToken)
     {
         Uri uri = BuildFileUri(peer, profileType, relativePath);
+        _logger.Info($"Downloading remote file. Uri={uri}; Destination={destinationPath}");
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
         await using Stream source = await _httpClient.GetStreamAsync(uri, cancellationToken);
         await using FileStream destination = File.Create(destinationPath);
@@ -292,6 +317,7 @@ public sealed class PeerHttpTransport : IPeerTransport
     {
         DateTimeOffset lastWriteUtc = File.GetLastWriteTimeUtc(sourcePath);
         Uri uri = BuildFileUri(peer, profileType, relativePath, lastWriteUtc);
+        _logger.Info($"Uploading remote file. Uri={uri}; Source={sourcePath}; LastWriteUtc={lastWriteUtc:O}");
         await using FileStream source = File.OpenRead(sourcePath);
         using StreamContent content = new(source);
         using HttpResponseMessage response = await _httpClient.PutAsync(uri, content, cancellationToken);
