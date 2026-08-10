@@ -52,6 +52,7 @@ public sealed class LanPeerDiscovery : IPeerDiscovery
                 continue;
             }
 
+            peer = UseObservedEndpointAddress(peer, result.RemoteEndPoint);
             if (_peers.TryAdd(peer.MachineId, peer))
             {
                 yield return peer;
@@ -70,6 +71,15 @@ public sealed class LanPeerDiscovery : IPeerDiscovery
     {
         return !string.Equals(localPeer.MachineId, remotePeer.MachineId, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(localPeer.AppVersion, remotePeer.AppVersion, StringComparison.Ordinal);
+    }
+
+    public static PeerInfo UseObservedEndpointAddress(PeerInfo peer, IPEndPoint observedRemoteEndPoint)
+    {
+        UriBuilder builder = new(peer.Endpoint)
+        {
+            Host = observedRemoteEndPoint.Address.ToString()
+        };
+        return peer with { Endpoint = builder.Uri };
     }
 
     private async Task BroadcastLoopAsync(UdpClient broadcaster, CancellationToken cancellationToken)
