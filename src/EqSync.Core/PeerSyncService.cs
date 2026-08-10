@@ -62,7 +62,6 @@ public sealed class PeerSyncService
     {
         _logger.Info($"Preview requested. LocalProfile={localInstall.ProfileType}; LocalPath={localInstall.Path}; Peer={peer.MachineName}; PeerEndpoint={peer.Endpoint}; PeerVersion={peer.AppVersion}");
         ThrowIfLocalBlocked();
-        await ThrowIfRemoteBlockedAsync(peer, cancellationToken);
 
         SyncManifest localManifest = _manifestBuilder.Build(localInstall, _machineId, _machineName);
         _logger.Info($"Local manifest ready. Profile={localManifest.ProfileType}; Files={localManifest.Files.Count}; Machine={localManifest.MachineName}");

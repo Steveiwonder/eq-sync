@@ -5,6 +5,78 @@ namespace EqSync.Core.Tests;
 public sealed class PeerSyncServiceTests
 {
     [Fact]
+    public async Task PreviewAsync_DoesNotBlockWhenRemoteGameIsRunning()
+    {
+        string local = CreateInstallRoot();
+        File.WriteAllText(Path.Combine(local, "eqclient.ini"), "local");
+
+        FakePeerTransport transport = new()
+        {
+            RemoteBlockers = ["eqgame"],
+            RemoteManifest = new SyncManifest(
+                "remote",
+                "Remote PC",
+                EqProfileType.EverQuest,
+                "remote-install",
+                DateTimeOffset.UtcNow,
+                [
+                    new SyncFileEntry("eqclient.ini", 6, DateTimeOffset.UtcNow.AddMinutes(1), "remote")
+                ])
+        };
+
+        PeerSyncService service = new(
+            new ManifestBuilder(new SyncContentRules()),
+            new SyncPlanner(),
+            transport,
+            new BackupService(),
+            new FakeProcessGuard(),
+            "local",
+            "pc");
+
+        SyncPlan plan = await service.PreviewAsync(Install(local), Peer(), CancellationToken.None);
+
+        Assert.Equal(0, transport.BlockerRequestCount);
+        Assert.Equal(1, plan.ChangeCount);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_BlocksWhenRemoteGameIsRunning()
+    {
+        string local = CreateInstallRoot();
+        File.WriteAllText(Path.Combine(local, "eqclient.ini"), "local");
+
+        SyncPlan plan = new(EqProfileType.EverQuest,
+        [
+            new SyncPlanItem(
+                "eqclient.ini",
+                SyncActionKind.CopyLocalToRemote,
+                new SyncFileEntry("eqclient.ini", 5, DateTimeOffset.UtcNow, "local"),
+                null,
+                "Local only")
+        ]);
+
+        FakePeerTransport transport = new()
+        {
+            RemoteBlockers = ["eqgame"]
+        };
+
+        PeerSyncService service = new(
+            new ManifestBuilder(new SyncContentRules()),
+            new SyncPlanner(),
+            transport,
+            new BackupService(),
+            new FakeProcessGuard(),
+            "local",
+            "pc");
+
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ApplyAsync(Install(local), Peer(), plan, CancellationToken.None));
+
+        Assert.Contains("Remote PC", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(1, transport.BlockerRequestCount);
+    }
+
+    [Fact]
     public async Task ApplyAsync_DownloadsIncomingAndUploadsOutgoing()
     {
         string local = CreateInstallRoot();
@@ -77,15 +149,24 @@ public sealed class PeerSyncServiceTests
     private sealed class FakePeerTransport : IPeerTransport
     {
         public List<string> Uploads { get; } = [];
+        public IReadOnlyList<string> RemoteBlockers { get; init; } = [];
+        public SyncManifest? RemoteManifest { get; init; }
+        public int BlockerRequestCount { get; private set; }
 
         public Task<SyncManifest> GetManifestAsync(PeerInfo peer, EqProfileType profileType, CancellationToken cancellationToken)
         {
-            throw new NotSupportedException();
+            if (RemoteManifest is null)
+            {
+                throw new NotSupportedException();
+            }
+
+            return Task.FromResult(RemoteManifest);
         }
 
         public Task<IReadOnlyList<string>> GetBlockingProcessesAsync(PeerInfo peer, CancellationToken cancellationToken)
         {
-            return Task.FromResult<IReadOnlyList<string>>([]);
+            BlockerRequestCount++;
+            return Task.FromResult(RemoteBlockers);
         }
 
         public Task DownloadFileAsync(PeerInfo peer, EqProfileType profileType, string relativePath, string destinationPath, CancellationToken cancellationToken)
