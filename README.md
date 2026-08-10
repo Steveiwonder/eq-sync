@@ -37,3 +37,7 @@ Run EQ Sync on both PCs, with EverQuest and LaunchPad closed on both sides.
 5. Click **Apply Sync**.
 
 The app copies newer files in both directions and creates backups before overwriting local files.
+
+## Updates
+
+Use **Check Updates** in the app to download and apply the latest GitHub Release. Builds before `v0.1.4` do not include the updater, so install `v0.1.4` manually once on each PC.

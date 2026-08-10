@@ -9,6 +9,7 @@ public partial class MainWindow : Window
     private readonly IManifestBuilder _manifestBuilder;
     private readonly IRunningProcessGuard _processGuard;
     private readonly PeerSyncService _peerSyncService;
+    private readonly SelfUpdateService _selfUpdateService = new();
     private IReadOnlyList<EqInstall> _installs;
     private SyncPlan? _currentPlan;
     private EqInstall? _currentInstall;
@@ -145,9 +146,47 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnCheckUpdatesClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetBusy(true, "Checking GitHub Releases for updates...");
+            UpdateCheckResult update = await _selfUpdateService.CheckForUpdateAsync(CancellationToken.None);
+            if (!update.IsUpdateAvailable)
+            {
+                StatusText.Text = $"No update available. Current version: {update.CurrentVersion}.";
+                return;
+            }
+
+            MessageBoxResult confirm = System.Windows.MessageBox.Show(
+                $"EQ Sync {update.LatestVersion} is available. Download, install, and restart now?",
+                "EQ Sync Update",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (confirm != MessageBoxResult.Yes)
+            {
+                StatusText.Text = $"Update available: {update.LatestVersion}.";
+                return;
+            }
+
+            StatusText.Text = $"Downloading EQ Sync {update.LatestVersion}...";
+            await _selfUpdateService.DownloadAndLaunchUpdaterAsync(update, CancellationToken.None);
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Update check failed: {ex.Message}";
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void SetBusy(bool isBusy, string? status = null)
     {
         RefreshButton.IsEnabled = !isBusy;
+        UpdateButton.IsEnabled = !isBusy;
         PreviewButton.IsEnabled = !isBusy;
         ApplyButton.IsEnabled = !isBusy && _currentPlan is not null && _currentPlan.ChangeCount > 0 && _currentPlan.ConflictCount == 0;
         BusyProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;

@@ -13,6 +13,7 @@
         <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,12">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button x:Name="RefreshButton" Content="Refresh" Width="92" Margin="8,0,0,0" Click="OnRefreshClicked" />
+                <Button x:Name="UpdateButton" Content="Check Updates" Width="116" Margin="8,0,0,0" Click="OnCheckUpdatesClicked" />
                 <Button x:Name="PreviewButton" Content="Preview Sync" Width="112" Margin="8,0,0,0" Click="OnPreviewClicked" />
                 <Button x:Name="ApplyButton" Content="Apply Sync" Width="104" Margin="8,0,0,0" Click="OnApplyClicked" IsEnabled="False" />
             </StackPanel>
@@ -60,7 +61,7 @@
 
         <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="1,0,0,0" Margin="0,12,0,0" Padding="0,12,0,0">
             <TextBlock TextWrapping="Wrap" Foreground="#555">
-                Select the same install type and a LAN peer, preview the plan, then apply. Sync is blocked while EverQuest or LaunchPad is running.
+                Select the same install type and a LAN peer, preview the plan, then apply. Sync is blocked while EverQuest or LaunchPad is running. Use Check Updates on both PCs to keep versions matched.
             </TextBlock>
         </Border>
     </Grid>
