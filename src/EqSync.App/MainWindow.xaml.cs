@@ -1,5 +1,8 @@
 using System.Windows;
 using System.Diagnostics;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.IO;
 using EqSync.Core;
 
@@ -21,6 +24,7 @@ public partial class MainWindow : Window
     private SyncPlan? _currentPlan;
     private EqInstall? _currentInstall;
     private PeerInfo? _currentPeer;
+    private ObservableCollection<PreviewRow> _previewRows = [];
 
     public MainWindow(
         LocalAppSettings settings,
@@ -109,9 +113,10 @@ public partial class MainWindow : Window
             _currentPlan = plan;
             _currentInstall = install;
             _currentPeer = peer;
-            PreviewGrid.ItemsSource = plan.Items
+            _previewRows = new ObservableCollection<PreviewRow>(plan.Items
                 .Select(item => new PreviewRow(DisplayAction(item.Action), item.RelativePath, item.Reason))
-                .ToArray();
+                .ToArray());
+            PreviewGrid.ItemsSource = _previewRows;
             ApplyButton.IsEnabled = plan.ChangeCount > 0 && plan.ConflictCount == 0;
             StatusText.Text = plan.ConflictCount > 0
                 ? $"Preview compared {plan.Items.Count} file(s), found {plan.ConflictCount} conflict(s). Apply is disabled."
@@ -152,7 +157,12 @@ public partial class MainWindow : Window
         {
             _logger.Info($"Apply clicked. Install={_currentInstall.DisplayName}; Profile={_currentInstall.ProfileType}; Peer={_currentPeer.MachineName}; Items={_currentPlan.Items.Count}; Changes={_currentPlan.ChangeCount}; Conflicts={_currentPlan.ConflictCount}");
             SetBusy(true, "Applying sync. Copying files and creating backups...");
-            PeerSyncApplyResult result = await Task.Run(() => _peerSyncService.ApplyAsync(_currentInstall, _currentPeer, _currentPlan, CancellationToken.None));
+            PrepareProgressRows();
+            BusyProgress.IsIndeterminate = false;
+            BusyProgress.Value = 0;
+            Progress<SyncProgressUpdate> progress = new(UpdateApplyProgress);
+            PeerSyncApplyResult result = await Task.Run(() => _peerSyncService.ApplyAsync(_currentInstall, _currentPeer, _currentPlan, CancellationToken.None, progress));
+            _currentPlan = null;
             ApplyButton.IsEnabled = false;
             StatusText.Text = $"Synced. Downloaded {result.DownloadedFiles}, uploaded {result.UploadedFiles}. Local backups: {result.LocalBackup.FileCount}.";
         }
@@ -261,10 +271,50 @@ public partial class MainWindow : Window
         PreviewButton.IsEnabled = !isBusy;
         ApplyButton.IsEnabled = !isBusy && _currentPlan is not null && _currentPlan.ChangeCount > 0 && _currentPlan.ConflictCount == 0;
         BusyProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        if (isBusy)
+        {
+            BusyProgress.IsIndeterminate = true;
+        }
+
         if (status is not null)
         {
             StatusText.Text = status;
         }
+    }
+
+    private void PrepareProgressRows()
+    {
+        foreach (PreviewRow row in _previewRows)
+        {
+            row.Status = row.Action is "CopyRemoteToLocal" or "CopyLocalToRemote" ? "Pending" : "-";
+        }
+    }
+
+    private void UpdateApplyProgress(SyncProgressUpdate update)
+    {
+        if (update.TotalItems > 0)
+        {
+            BusyProgress.Value = Math.Clamp(update.CompletedItems * 100.0 / update.TotalItems, 0, 100);
+        }
+
+        StatusText.Text = $"{update.Message} ({update.CompletedItems}/{update.TotalItems})";
+        if (update.RelativePath is null)
+        {
+            return;
+        }
+
+        PreviewRow? row = _previewRows.FirstOrDefault(candidate => string.Equals(candidate.RelativePath, update.RelativePath, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            return;
+        }
+
+        row.Status = update.Phase switch
+        {
+            SyncProgressPhase.Downloading or SyncProgressPhase.Uploading => "Syncing",
+            SyncProgressPhase.Completed => "Done",
+            _ => row.Status
+        };
     }
 
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -278,5 +328,44 @@ public partial class MainWindow : Window
         return action == SyncActionKind.NoOp ? "Same" : action.ToString();
     }
 
-    private sealed record PreviewRow(string Action, string RelativePath, string Reason);
+    private sealed class PreviewRow : INotifyPropertyChanged
+    {
+        private string _status;
+
+        public PreviewRow(string action, string relativePath, string reason)
+        {
+            Action = action;
+            RelativePath = relativePath;
+            Reason = reason;
+            _status = action == "Same" ? "-" : "Ready";
+        }
+
+        public string Status
+        {
+            get => _status;
+            set
+            {
+                if (_status == value)
+                {
+                    return;
+                }
+
+                _status = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string Action { get; }
+
+        public string RelativePath { get; }
+
+        public string Reason { get; }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
 }

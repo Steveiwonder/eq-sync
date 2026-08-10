@@ -5,6 +5,22 @@ public sealed record PeerSyncApplyResult(
     int DownloadedFiles,
     int UploadedFiles);
 
+public enum SyncProgressPhase
+{
+    Preparing,
+    BackingUp,
+    Downloading,
+    Uploading,
+    Completed
+}
+
+public sealed record SyncProgressUpdate(
+    SyncProgressPhase Phase,
+    string? RelativePath,
+    int CompletedItems,
+    int TotalItems,
+    string Message);
+
 public sealed class PeerSyncService
 {
     private readonly IManifestBuilder _manifestBuilder;
@@ -57,7 +73,12 @@ public sealed class PeerSyncService
         return plan;
     }
 
-    public async Task<PeerSyncApplyResult> ApplyAsync(EqInstall localInstall, PeerInfo peer, SyncPlan plan, CancellationToken cancellationToken)
+    public async Task<PeerSyncApplyResult> ApplyAsync(
+        EqInstall localInstall,
+        PeerInfo peer,
+        SyncPlan plan,
+        CancellationToken cancellationToken,
+        IProgress<SyncProgressUpdate>? progress = null)
     {
         _logger.Info($"Apply requested. Profile={localInstall.ProfileType}; Items={plan.Items.Count}; Changes={plan.ChangeCount}; Conflicts={plan.ConflictCount}; Peer={peer.MachineName}");
         if (plan.ConflictCount > 0)
@@ -71,7 +92,10 @@ public sealed class PeerSyncService
         SyncPlanItem[] incoming = plan.Items.Where(item => item.Action == SyncActionKind.CopyRemoteToLocal).ToArray();
         SyncPlanItem[] outgoing = plan.Items.Where(item => item.Action == SyncActionKind.CopyLocalToRemote).ToArray();
         _logger.Info($"Apply classified actions. Incoming={incoming.Length}; Outgoing={outgoing.Length}");
+        int totalItems = incoming.Length + outgoing.Length;
+        int completedItems = 0;
 
+        progress?.Report(new SyncProgressUpdate(SyncProgressPhase.BackingUp, null, completedItems, totalItems, "Creating local backups..."));
         BackupResult backup = _backupService.BackupFiles(localInstall.Path, incoming.Select(item => item.RelativePath), _backupRoot);
         _logger.Info($"Local backup complete. Path={backup.BackupPath}; Files={backup.FileCount}");
 
@@ -79,21 +103,29 @@ public sealed class PeerSyncService
         {
             string destination = BackupService.ResolveUnderRoot(localInstall.Path, item.RelativePath);
             _logger.Info($"Downloading file from peer. Path={item.RelativePath}; Destination={destination}");
+            progress?.Report(new SyncProgressUpdate(SyncProgressPhase.Downloading, item.RelativePath, completedItems, totalItems, $"Downloading {item.RelativePath}"));
             await _transport.DownloadFileAsync(peer, localInstall.ProfileType, item.RelativePath, destination, cancellationToken);
             if (item.Remote is not null)
             {
                 File.SetLastWriteTimeUtc(destination, item.Remote.LastWriteUtc.UtcDateTime);
             }
+
+            completedItems++;
+            progress?.Report(new SyncProgressUpdate(SyncProgressPhase.Completed, item.RelativePath, completedItems, totalItems, $"Downloaded {item.RelativePath}"));
         }
 
         foreach (SyncPlanItem item in outgoing)
         {
             string source = BackupService.ResolveUnderRoot(localInstall.Path, item.RelativePath);
             _logger.Info($"Uploading file to peer. Path={item.RelativePath}; Source={source}");
+            progress?.Report(new SyncProgressUpdate(SyncProgressPhase.Uploading, item.RelativePath, completedItems, totalItems, $"Uploading {item.RelativePath}"));
             await _transport.UploadFileAsync(peer, localInstall.ProfileType, item.RelativePath, source, cancellationToken);
+            completedItems++;
+            progress?.Report(new SyncProgressUpdate(SyncProgressPhase.Completed, item.RelativePath, completedItems, totalItems, $"Uploaded {item.RelativePath}"));
         }
 
         _logger.Info($"Apply complete. Downloaded={incoming.Length}; Uploaded={outgoing.Length}");
+        progress?.Report(new SyncProgressUpdate(SyncProgressPhase.Completed, null, completedItems, totalItems, "Sync complete."));
         return new PeerSyncApplyResult(backup, incoming.Length, outgoing.Length);
     }
 

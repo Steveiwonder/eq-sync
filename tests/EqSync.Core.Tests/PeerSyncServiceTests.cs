@@ -39,13 +39,22 @@ public sealed class PeerSyncServiceTests
             "pc",
             backup);
 
-        PeerSyncApplyResult result = await service.ApplyAsync(Install(local), Peer(), plan, CancellationToken.None);
+        List<SyncProgressUpdate> updates = [];
+        PeerSyncApplyResult result = await service.ApplyAsync(
+            Install(local),
+            Peer(),
+            plan,
+            CancellationToken.None,
+            new Progress<SyncProgressUpdate>(updates.Add));
 
         Assert.Equal("remote", File.ReadAllText(Path.Combine(local, "eqclient.ini")));
         Assert.Contains("notes.txt", transport.Uploads);
         Assert.Equal(1, result.DownloadedFiles);
         Assert.Equal(1, result.UploadedFiles);
         Assert.Equal(1, result.LocalBackup.FileCount);
+        Assert.Contains(updates, update => update.Phase == SyncProgressPhase.Downloading && update.RelativePath == "eqclient.ini");
+        Assert.Contains(updates, update => update.Phase == SyncProgressPhase.Uploading && update.RelativePath == "notes.txt");
+        Assert.Contains(updates, update => update.CompletedItems == 2 && update.TotalItems == 2);
     }
 
     private static string CreateInstallRoot()

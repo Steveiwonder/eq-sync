@@ -37,6 +37,8 @@
                              Height="6"
                              Margin="0,8,0,0"
                              IsIndeterminate="True"
+                             Minimum="0"
+                             Maximum="100"
                              Visibility="Collapsed" />
             </StackPanel>
         </Grid>
@@ -64,6 +66,7 @@
                           HeadersVisibility="Column"
                           GridLinesVisibility="Horizontal">
                     <DataGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding Status}" Header="Status" Width="90" />
                         <DataGridTextColumn Binding="{Binding Action}" Header="Action" Width="130" />
                         <DataGridTextColumn Binding="{Binding RelativePath}" Header="File" Width="*" />
                         <DataGridTextColumn Binding="{Binding Reason}" Header="Reason" Width="150" />
