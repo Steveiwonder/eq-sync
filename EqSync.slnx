@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EqSync.App/EqSync.App.csproj" />
+    <Project Path="src/EqSync.Core/EqSync.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EqSync.Core.Tests/EqSync.Core.Tests.csproj" />
+  </Folder>
+</Solution>
