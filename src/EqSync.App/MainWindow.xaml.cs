@@ -83,8 +83,10 @@ public partial class MainWindow : Window
 
         try
         {
-            SetBusy(true, $"Previewing {install.DisplayName} with {peer.MachineName}...");
-            SyncPlan plan = await _peerSyncService.PreviewAsync(install, peer, CancellationToken.None);
+            PreviewGrid.ItemsSource = null;
+            ApplyButton.IsEnabled = false;
+            SetBusy(true, $"Previewing {install.DisplayName} with {peer.MachineName}. Hashing files and comparing manifests...");
+            SyncPlan plan = await Task.Run(() => _peerSyncService.PreviewAsync(install, peer, CancellationToken.None));
             _currentPlan = plan;
             _currentInstall = install;
             _currentPeer = peer;
@@ -128,8 +130,8 @@ public partial class MainWindow : Window
 
         try
         {
-            SetBusy(true, "Applying sync...");
-            PeerSyncApplyResult result = await _peerSyncService.ApplyAsync(_currentInstall, _currentPeer, _currentPlan, CancellationToken.None);
+            SetBusy(true, "Applying sync. Copying files and creating backups...");
+            PeerSyncApplyResult result = await Task.Run(() => _peerSyncService.ApplyAsync(_currentInstall, _currentPeer, _currentPlan, CancellationToken.None));
             ApplyButton.IsEnabled = false;
             StatusText.Text = $"Synced. Downloaded {result.DownloadedFiles}, uploaded {result.UploadedFiles}. Local backups: {result.LocalBackup.FileCount}.";
         }
@@ -148,6 +150,7 @@ public partial class MainWindow : Window
         RefreshButton.IsEnabled = !isBusy;
         PreviewButton.IsEnabled = !isBusy;
         ApplyButton.IsEnabled = !isBusy && _currentPlan is not null && _currentPlan.ChangeCount > 0 && _currentPlan.ConflictCount == 0;
+        BusyProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
         if (status is not null)
         {
             StatusText.Text = status;

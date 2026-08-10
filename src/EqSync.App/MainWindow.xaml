@@ -19,6 +19,11 @@
             <StackPanel>
                 <TextBlock Text="EQ Sync" FontSize="24" FontWeight="SemiBold" />
                 <TextBlock x:Name="StatusText" Text="Ready" Foreground="#555" Margin="0,4,0,0" />
+                <ProgressBar x:Name="BusyProgress"
+                             Height="6"
+                             Margin="0,8,0,0"
+                             IsIndeterminate="True"
+                             Visibility="Collapsed" />
             </StackPanel>
         </DockPanel>
 
