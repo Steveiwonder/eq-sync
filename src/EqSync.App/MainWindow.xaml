@@ -19,6 +19,7 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
                 <Button x:Name="RefreshButton" Content="Refresh" Width="92" Margin="8,0,0,0" Click="OnRefreshClicked" />
                 <Button x:Name="OpenLogButton" Content="Open Log" Width="92" Margin="8,0,0,0" Click="OnOpenLogClicked" />
+                <Button x:Name="OpenBackupsButton" Content="Open Backups" Width="112" Margin="8,0,0,0" Click="OnOpenBackupsClicked" />
                 <Button x:Name="UpdateButton" Content="Check Updates" Width="116" Margin="8,0,0,0" Click="OnCheckUpdatesClicked" />
                 <Button x:Name="PreviewButton" Content="Preview Sync" Width="112" Margin="8,0,0,0" Click="OnPreviewClicked" />
                 <Button x:Name="ApplyButton" Content="Apply Sync" Width="104" Margin="8,0,0,0" Click="OnApplyClicked" IsEnabled="False" />

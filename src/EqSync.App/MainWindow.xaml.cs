@@ -13,6 +13,10 @@ public partial class MainWindow : Window
     private readonly PeerSyncService _peerSyncService;
     private readonly SelfUpdateService _selfUpdateService = new();
     private readonly IEqSyncLogger _logger;
+    private readonly string _backupRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "EqSync",
+        "backups");
     private IReadOnlyList<EqInstall> _installs;
     private SyncPlan? _currentPlan;
     private EqInstall? _currentInstall;
@@ -230,10 +234,29 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnOpenBackupsClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _logger.Info($"Open backups clicked. Path={_backupRoot}");
+            Directory.CreateDirectory(_backupRoot);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _backupRoot,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Could not open backups: {ex.Message}";
+        }
+    }
+
     private void SetBusy(bool isBusy, string? status = null)
     {
         RefreshButton.IsEnabled = !isBusy;
         OpenLogButton.IsEnabled = !isBusy;
+        OpenBackupsButton.IsEnabled = !isBusy;
         UpdateButton.IsEnabled = !isBusy;
         PreviewButton.IsEnabled = !isBusy;
         ApplyButton.IsEnabled = !isBusy && _currentPlan is not null && _currentPlan.ChangeCount > 0 && _currentPlan.ConflictCount == 0;
