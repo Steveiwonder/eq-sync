@@ -10,22 +10,25 @@ public partial class App : System.Windows.Application
     private MainWindow? _mainWindow;
     private PeerHttpService? _peerHttpService;
     private CancellationTokenSource? _discoveryCancellation;
+    private LocalAppSettingsStore? _settingsStore;
+    private LocalAppSettings? _settings;
+    private FileEqSyncLogger? _logger;
 
     private async void OnStartup(object sender, StartupEventArgs e)
     {
-        LocalAppSettingsStore settingsStore = new();
-        LocalAppSettings settings = settingsStore.Load();
-        settingsStore.Save(settings);
+        _settingsStore = new LocalAppSettingsStore();
+        _settings = _settingsStore.Load();
+        _settingsStore.Save(_settings);
 
-        FileEqSyncLogger logger = new();
-        logger.Info($"EQ Sync starting. Version={AppVersionProvider.Current}; Machine={Environment.MachineName}; SettingsPath={settingsStore.SettingsPath}; LogPath={logger.LogPath}");
+        _logger = new FileEqSyncLogger();
+        _logger.Info($"EQ Sync starting. Version={AppVersionProvider.Current}; Machine={Environment.MachineName}; SettingsPath={_settingsStore.SettingsPath}; LogPath={_logger.LogPath}");
         SyncContentRules rules = new();
-        EqInstallDiscovery discovery = new(settings.ManualInstallPaths);
-        ManifestBuilder manifestBuilder = new(rules, logger);
+        EqInstallDiscovery discovery = new(_settings.ManualInstallPaths);
+        ManifestBuilder manifestBuilder = new(rules, _logger);
         BackupService backupService = new();
         RunningProcessGuard processGuard = new();
         IReadOnlyList<EqInstall> installs = discovery.Discover();
-        logger.Info($"Install discovery complete. Count={installs.Count}; Installs={string.Join(" | ", installs.Select(install => $"{install.ProfileType}:{install.DisplayName}:{install.Path}"))}");
+        _logger.Info($"Install discovery complete. Count={installs.Count}; Installs={string.Join(" | ", installs.Select(install => $"{install.ProfileType}:{install.DisplayName}:{install.Path}"))}");
 
         _peerHttpService = new PeerHttpService(
             () => discovery.Discover(),
@@ -33,36 +36,70 @@ public partial class App : System.Windows.Application
             rules,
             backupService,
             processGuard,
-            settings.MachineId,
+            _settings.MachineId,
             Environment.MachineName,
-            logger: logger);
+            logger: _logger);
 
         try
         {
             _peerHttpService.Start();
+            PromptForFirewallRulesIfNeeded();
         }
         catch (Exception ex)
         {
+            _logger.Error(ex, "Could not start local peer HTTP service.");
             System.Windows.MessageBox.Show($"Could not start local peer HTTP service: {ex.Message}", "EQ Sync");
         }
 
         PeerSyncService peerSyncService = new(
             manifestBuilder,
             new SyncPlanner(),
-            new PeerHttpTransport(logger: logger),
+            new PeerHttpTransport(logger: _logger),
             backupService,
             processGuard,
-            settings.MachineId,
+            _settings.MachineId,
             Environment.MachineName,
-            logger: logger);
+            logger: _logger);
 
-        _mainWindow = new MainWindow(settings, installs, manifestBuilder, processGuard, peerSyncService, logger);
+        _mainWindow = new MainWindow(_settings, installs, manifestBuilder, processGuard, peerSyncService, _logger);
         ConfigureTrayIcon();
         _mainWindow.Show();
 
         _discoveryCancellation = new CancellationTokenSource();
-        _ = DiscoverPeersAsync(settings, discovery, _discoveryCancellation.Token);
+        _ = DiscoverPeersAsync(_settings, discovery, _discoveryCancellation.Token);
         await Task.CompletedTask;
+    }
+
+    private void PromptForFirewallRulesIfNeeded()
+    {
+        if (_settings is null || _settingsStore is null || _logger is null || _settings.FirewallPromptDismissed)
+        {
+            return;
+        }
+
+        FirewallRuleService firewallRules = new();
+        if (firewallRules.AreRulesPresent())
+        {
+            _logger.Info("Firewall rules already present.");
+            return;
+        }
+
+        MessageBoxResult result = System.Windows.MessageBox.Show(
+            "EQ Sync listens on TCP 47642 for sync and UDP 47641 for discovery. Allow EQ Sync through Windows Firewall for local subnet devices?",
+            "EQ Sync Firewall",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            _logger.Info("User accepted firewall rule prompt. Launching elevated rule installer.");
+            firewallRules.LaunchElevatedRuleInstaller();
+            return;
+        }
+
+        _logger.Info("User declined firewall rule prompt. Prompt dismissed.");
+        _settings = _settings with { FirewallPromptDismissed = true };
+        _settingsStore.Save(_settings);
     }
 
     private void ConfigureTrayIcon()

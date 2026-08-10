@@ -7,7 +7,8 @@ public sealed record TrustedPeer(string MachineId, string MachineName, DateTimeO
 public sealed record LocalAppSettings(
     string MachineId,
     IReadOnlyList<string> ManualInstallPaths,
-    IReadOnlyList<TrustedPeer> TrustedPeers)
+    IReadOnlyList<TrustedPeer> TrustedPeers,
+    bool FirewallPromptDismissed = false)
 {
     public static LocalAppSettings CreateDefault()
     {
