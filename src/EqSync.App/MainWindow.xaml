@@ -10,24 +10,35 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,12">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="260" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
                 <Button x:Name="RefreshButton" Content="Refresh" Width="92" Margin="8,0,0,0" Click="OnRefreshClicked" />
                 <Button x:Name="OpenLogButton" Content="Open Log" Width="92" Margin="8,0,0,0" Click="OnOpenLogClicked" />
                 <Button x:Name="UpdateButton" Content="Check Updates" Width="116" Margin="8,0,0,0" Click="OnCheckUpdatesClicked" />
                 <Button x:Name="PreviewButton" Content="Preview Sync" Width="112" Margin="8,0,0,0" Click="OnPreviewClicked" />
                 <Button x:Name="ApplyButton" Content="Apply Sync" Width="104" Margin="8,0,0,0" Click="OnApplyClicked" IsEnabled="False" />
             </StackPanel>
-            <StackPanel>
+
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
                 <TextBlock Text="EQ Sync" FontSize="24" FontWeight="SemiBold" />
-                <TextBlock x:Name="StatusText" Text="Ready" Foreground="#555" Margin="0,4,0,0" />
+                <TextBlock x:Name="StatusText"
+                           Text="Ready"
+                           Foreground="#555"
+                           Margin="0,4,0,0"
+                           TextWrapping="Wrap"
+                           MaxHeight="56" />
                 <ProgressBar x:Name="BusyProgress"
                              Height="6"
                              Margin="0,8,0,0"
                              IsIndeterminate="True"
                              Visibility="Collapsed" />
             </StackPanel>
-        </DockPanel>
+        </Grid>
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
