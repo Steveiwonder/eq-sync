@@ -25,3 +25,15 @@ dotnet restore
 dotnet build --configuration Release
 dotnet test --configuration Release --no-build
 ```
+
+## Sync
+
+Run EQ Sync on both PCs, with EverQuest and LaunchPad closed on both sides.
+
+1. Select the local EverQuest or EverQuest Legends install.
+2. Select the LAN peer.
+3. Click **Preview Sync**.
+4. Review the planned file actions.
+5. Click **Apply Sync**.
+
+The app copies newer files in both directions and creates backups before overwriting local files.

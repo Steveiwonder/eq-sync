@@ -8,18 +8,24 @@ public partial class MainWindow : Window
     private readonly LocalAppSettings _settings;
     private readonly IManifestBuilder _manifestBuilder;
     private readonly IRunningProcessGuard _processGuard;
+    private readonly PeerSyncService _peerSyncService;
     private IReadOnlyList<EqInstall> _installs;
+    private SyncPlan? _currentPlan;
+    private EqInstall? _currentInstall;
+    private PeerInfo? _currentPeer;
 
     public MainWindow(
         LocalAppSettings settings,
         IReadOnlyList<EqInstall> installs,
         IManifestBuilder manifestBuilder,
-        IRunningProcessGuard processGuard)
+        IRunningProcessGuard processGuard,
+        PeerSyncService peerSyncService)
     {
         _settings = settings;
         _installs = installs;
         _manifestBuilder = manifestBuilder;
         _processGuard = processGuard;
+        _peerSyncService = peerSyncService;
         InitializeComponent();
         LoadInstalls();
     }
@@ -57,9 +63,11 @@ public partial class MainWindow : Window
         _installs = discovery.Discover();
         LoadInstalls();
         PreviewGrid.ItemsSource = null;
+        ApplyButton.IsEnabled = false;
+        _currentPlan = null;
     }
 
-    private void OnPreviewClicked(object sender, RoutedEventArgs e)
+    private async void OnPreviewClicked(object sender, RoutedEventArgs e)
     {
         if (InstallsList.SelectedItem is not EqInstall install)
         {
@@ -67,18 +75,83 @@ public partial class MainWindow : Window
             return;
         }
 
-        IReadOnlyList<string> blockers = _processGuard.GetBlockingProcesses();
-        if (blockers.Count > 0)
+        if (PeersList.SelectedItem is not PeerInfo peer)
         {
-            StatusText.Text = $"Sync blocked while running: {string.Join(", ", blockers)}";
+            StatusText.Text = "Select a LAN peer first.";
             return;
         }
 
-        SyncManifest manifest = _manifestBuilder.Build(install, _settings.MachineId, Environment.MachineName);
-        PreviewGrid.ItemsSource = manifest.Files
-            .Select(file => new PreviewRow("Tracked", file.RelativePath, $"{file.Size:N0} bytes"))
-            .ToArray();
-        StatusText.Text = $"Previewed {manifest.Files.Count} tracked files for {install.DisplayName}.";
+        try
+        {
+            SetBusy(true, $"Previewing {install.DisplayName} with {peer.MachineName}...");
+            SyncPlan plan = await _peerSyncService.PreviewAsync(install, peer, CancellationToken.None);
+            _currentPlan = plan;
+            _currentInstall = install;
+            _currentPeer = peer;
+            PreviewGrid.ItemsSource = plan.Items
+                .Where(item => item.Action is not SyncActionKind.NoOp)
+                .Select(item => new PreviewRow(item.Action.ToString(), item.RelativePath, item.Reason))
+                .ToArray();
+            ApplyButton.IsEnabled = plan.ChangeCount > 0 && plan.ConflictCount == 0;
+            StatusText.Text = plan.ConflictCount > 0
+                ? $"Preview found {plan.ConflictCount} conflict(s). Apply is disabled."
+                : $"Preview found {plan.ChangeCount} change(s).";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+            ApplyButton.IsEnabled = false;
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async void OnApplyClicked(object sender, RoutedEventArgs e)
+    {
+        if (_currentPlan is null || _currentInstall is null || _currentPeer is null)
+        {
+            StatusText.Text = "Preview a sync plan first.";
+            return;
+        }
+
+        MessageBoxResult confirm = System.Windows.MessageBox.Show(
+            $"Apply {_currentPlan.ChangeCount} change(s) between this PC and {_currentPeer.MachineName}?",
+            "EQ Sync",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Applying sync...");
+            PeerSyncApplyResult result = await _peerSyncService.ApplyAsync(_currentInstall, _currentPeer, _currentPlan, CancellationToken.None);
+            ApplyButton.IsEnabled = false;
+            StatusText.Text = $"Synced. Downloaded {result.DownloadedFiles}, uploaded {result.UploadedFiles}. Local backups: {result.LocalBackup.FileCount}.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private void SetBusy(bool isBusy, string? status = null)
+    {
+        RefreshButton.IsEnabled = !isBusy;
+        PreviewButton.IsEnabled = !isBusy;
+        ApplyButton.IsEnabled = !isBusy && _currentPlan is not null && _currentPlan.ChangeCount > 0 && _currentPlan.ConflictCount == 0;
+        if (status is not null)
+        {
+            StatusText.Text = status;
+        }
     }
 
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)

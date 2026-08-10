@@ -20,12 +20,16 @@ public partial class App : System.Windows.Application
         SyncContentRules rules = new();
         EqInstallDiscovery discovery = new(settings.ManualInstallPaths);
         ManifestBuilder manifestBuilder = new(rules);
+        BackupService backupService = new();
         RunningProcessGuard processGuard = new();
         IReadOnlyList<EqInstall> installs = discovery.Discover();
 
         _peerHttpService = new PeerHttpService(
             () => discovery.Discover(),
             manifestBuilder,
+            rules,
+            backupService,
+            processGuard,
             settings.MachineId,
             Environment.MachineName);
 
@@ -38,7 +42,16 @@ public partial class App : System.Windows.Application
             System.Windows.MessageBox.Show($"Could not start local peer HTTP service: {ex.Message}", "EQ Sync");
         }
 
-        _mainWindow = new MainWindow(settings, installs, manifestBuilder, processGuard);
+        PeerSyncService peerSyncService = new(
+            manifestBuilder,
+            new SyncPlanner(),
+            new PeerHttpTransport(),
+            backupService,
+            processGuard,
+            settings.MachineId,
+            Environment.MachineName);
+
+        _mainWindow = new MainWindow(settings, installs, manifestBuilder, processGuard, peerSyncService);
         ConfigureTrayIcon();
         _mainWindow.Show();
 

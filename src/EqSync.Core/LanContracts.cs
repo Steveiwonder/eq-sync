@@ -14,6 +14,12 @@ public interface IPeerDiscovery : IAsyncDisposable
 public interface IPeerTransport
 {
     Task<SyncManifest> GetManifestAsync(PeerInfo peer, EqProfileType profileType, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<string>> GetBlockingProcessesAsync(PeerInfo peer, CancellationToken cancellationToken);
+
+    Task DownloadFileAsync(PeerInfo peer, EqProfileType profileType, string relativePath, string destinationPath, CancellationToken cancellationToken);
+
+    Task UploadFileAsync(PeerInfo peer, EqProfileType profileType, string relativePath, string sourcePath, CancellationToken cancellationToken);
 }
 
 public interface IPairingService

@@ -13,7 +13,8 @@
         <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,12">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button x:Name="RefreshButton" Content="Refresh" Width="92" Margin="8,0,0,0" Click="OnRefreshClicked" />
-                <Button x:Name="PreviewButton" Content="Preview Local" Width="112" Margin="8,0,0,0" Click="OnPreviewClicked" />
+                <Button x:Name="PreviewButton" Content="Preview Sync" Width="112" Margin="8,0,0,0" Click="OnPreviewClicked" />
+                <Button x:Name="ApplyButton" Content="Apply Sync" Width="104" Margin="8,0,0,0" Click="OnApplyClicked" IsEnabled="False" />
             </StackPanel>
             <StackPanel>
                 <TextBlock Text="EQ Sync" FontSize="24" FontWeight="SemiBold" />
@@ -54,7 +55,7 @@
 
         <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="1,0,0,0" Margin="0,12,0,0" Padding="0,12,0,0">
             <TextBlock TextWrapping="Wrap" Foreground="#555">
-                Sync applies are blocked while EverQuest or LaunchPad is running. V1 uses manual preview/apply and keeps Live EQ and Legends separate.
+                Select the same install type and a LAN peer, preview the plan, then apply. Sync is blocked while EverQuest or LaunchPad is running.
             </TextBlock>
         </Border>
     </Grid>
